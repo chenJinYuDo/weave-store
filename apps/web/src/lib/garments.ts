@@ -9,6 +9,7 @@ export const categories = [
   "下装",
   "半裙",
   "连衣裙",
+  "套装",
   "外套",
   "鞋",
   "配饰",
@@ -94,9 +95,14 @@ export function createGarment(input: GarmentInput, captureId = "") {
   })
 }
 
-export async function createCapture(photo: File, label: File | null) {
+export async function createCapture(
+  photo: File,
+  label: File | null,
+  piece: "piece" | "set" = "piece",
+) {
   const body = new FormData()
   body.append("photo", photo)
+  body.append("piece", piece)
   if (label) {
     body.append("label", label)
   }

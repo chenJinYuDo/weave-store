@@ -28,6 +28,7 @@ export function NewGarmentPage() {
   const [cutoutUrl, setCutoutUrl] = useState("")
   const [message, setMessage] = useState("")
   const [values, setValues] = useState<GarmentInput>(emptyGarment)
+  const [asSet, setAsSet] = useState(false)
   const save = useMutation({
     mutationFn: (input: GarmentInput) => createGarment(input, captureId),
     onSuccess: async () => {
@@ -36,22 +37,28 @@ export function NewGarmentPage() {
     },
   })
 
-  async function recognize(nextLabel: File | null) {
+  async function recognize(nextLabel: File | null, piece: "piece" | "set") {
     if (!photo) {
       return
     }
+    setAsSet(piece === "set")
     setStep("working")
     try {
-      const capture = await createCapture(photo, nextLabel)
+      const capture = await createCapture(photo, nextLabel, piece)
       setCaptureId(capture.id)
       setCutoutUrl(capture.cutout_url)
       setMessage(capture.message)
-      setValues({ ...emptyGarment, ...capture.draft, name: "" })
+      setValues({
+        ...emptyGarment,
+        ...capture.draft,
+        name: "",
+        category: piece === "set" ? "套装" : capture.draft.category,
+      })
     } catch {
       setCaptureId("")
       setCutoutUrl("")
-      setMessage("识别没有完成，请自己填写")
-      setValues(emptyGarment)
+      setMessage(piece === "set" ? "还不能抠图，请自己填写" : "识别没有完成，请自己填写")
+      setValues(piece === "set" ? { ...emptyGarment, category: "套装" } : emptyGarment)
     }
     setStep("confirm")
   }
@@ -68,12 +75,19 @@ export function NewGarmentPage() {
             setPhotoUrl(url)
             setPhotoError("")
           }}
-          onNext={() => {
+          onPiece={() => {
             if (!photo) {
               setPhotoError("请先拍照")
               return
             }
             setStep("label")
+          }}
+          onSet={() => {
+            if (!photo) {
+              setPhotoError("请先拍照")
+              return
+            }
+            void recognize(null, "set")
           }}
         />
       ) : null}
@@ -84,13 +98,13 @@ export function NewGarmentPage() {
             setLabel(file)
             setLabelUrl(url)
           }}
-          onSkip={() => void recognize(null)}
-          onNext={() => void recognize(label)}
+          onSkip={() => void recognize(null, "piece")}
+          onNext={() => void recognize(label, "piece")}
         />
       ) : null}
       {step === "working" ? (
         <div className="mt-8 grid max-w-xl gap-4">
-          <p className="text-[17px] font-semibold">正在识别</p>
+          <p className="text-[17px] font-semibold">{asSet ? "正在抠图" : "正在识别"}</p>
           <Skeleton className="min-h-80 rounded-[24px]" />
         </div>
       ) : null}
@@ -110,7 +124,10 @@ export function NewGarmentPage() {
           <GarmentForm
             values={values}
             submitting={save.isPending}
-            onSubmit={(input) => save.mutate(input)}
+            lockCategory={asSet}
+            onSubmit={(input) =>
+              save.mutate(asSet ? { ...input, category: "套装" } : input)
+            }
           />
         </div>
       ) : null}
@@ -122,20 +139,25 @@ function PhotoStep({
   preview,
   error,
   onPick,
-  onNext,
+  onPiece,
+  onSet,
 }: {
   preview: string
   error: string
   onPick: (file: File, url: string) => void
-  onNext: () => void
+  onPiece: () => void
+  onSet: () => void
 }) {
   return (
     <div className="mt-8 grid max-w-xl gap-5">
       <p className="text-[17px] font-semibold">拍照</p>
       <PhotoWell preview={preview} error={error} onPick={onPick} />
-      <div>
-        <Button type="button" onClick={onNext}>
-          下一步
+      <div className="flex gap-3">
+        <Button type="button" onClick={onPiece}>
+          这是单件
+        </Button>
+        <Button type="button" variant="outline" onClick={onSet}>
+          这是一套
         </Button>
       </div>
     </div>

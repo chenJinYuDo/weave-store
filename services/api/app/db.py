@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from pathlib import Path
 
@@ -5,7 +6,29 @@ ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "data"
 DB_PATH = DATA / "weave.sqlite"
 
-CATEGORIES = ("上衣", "下装", "半裙", "连衣裙", "外套", "鞋", "配饰")
+
+def load_project_env() -> None:
+    path = ROOT / ".env"
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_project_env()
+
+CATEGORIES = ("上衣", "下装", "半裙", "连衣裙", "套装", "外套", "鞋", "配饰")
 SEASONS = ("", "春", "夏", "秋", "冬", "四季")
 CONSTRUCTIONS = ("梭织", "针织", "蕾丝", "无纺")
 STRETCHES = ("", "无", "低", "中", "高")

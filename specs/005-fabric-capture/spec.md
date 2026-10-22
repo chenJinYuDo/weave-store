@@ -31,7 +31,7 @@
 
 ## 数据与接口
 
-布面原图和规格标签放在 `data/captures/{id}/`，文件名分别是 `face` 和 `spec`。该目录不进 git。密钥只读环境变量 `DEEPSEEK_API_KEY`，不进 git。
+布面原图和规格标签放在 `data/captures/{id}/`，文件名分别是 `face` 和 `spec`。该目录不进 git。启动时从仓库根目录的 `.env` 读入 `DEEPSEEK_API_KEY`，终端里已经有的同名变量优先。`.env` 不进 git。
 
 布料表增加布面照位置。保存时如果这份拍照有布面照，就记下它。
 

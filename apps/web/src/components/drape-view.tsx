@@ -5,7 +5,19 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
 
 import { cn } from "cn"
 
-export function DrapeView({ url, className }: { url: string; className?: string }) {
+export function DrapeView({
+  url,
+  urls,
+  className,
+  onReady,
+  onFail,
+}: {
+  url?: string
+  urls?: string[]
+  className?: string
+  onReady?: () => void
+  onFail?: () => void
+}) {
   const container = useRef<HTMLDivElement>(null)
   const rotate = useRef<(direction: number) => void>(() => {})
   const [yaw, setYaw] = useState(0)
@@ -70,19 +82,69 @@ export function DrapeView({ url, className }: { url: string; className?: string 
     const observer = new ResizeObserver(resize)
     observer.observe(element)
     resize()
+    const list = urls ?? (url ? [url] : [])
     let model: THREE.Object3D | null = null
     const loader = new GLTFLoader()
-    loader.load(
-      url,
-      (gltf) => {
-        model = gltf.scene
-        scene.add(gltf.scene)
-      },
-      undefined,
-      () => setFailed(true),
-    )
+    let cancel = false
+    const loadOne = (item: string) =>
+      new Promise<THREE.Object3D>((resolve, reject) => {
+        loader.load(
+          item,
+          (gltf) => resolve(gltf.scene),
+          undefined,
+          () => reject(new Error(item)),
+        )
+      })
+    void (async () => {
+      const group = new THREE.Group()
+      for (const item of list) {
+        try {
+          group.add(await loadOne(item))
+          if (cancel) {
+            return
+          }
+          if (item.includes("/body.gltf")) {
+            onReady?.()
+          }
+        } catch {
+          if (cancel) {
+            return
+          }
+          if (item.includes("/body.gltf")) {
+            onFail?.()
+          } else {
+            setFailed(true)
+          }
+        }
+      }
+      if (cancel || group.children.length === 0) {
+        return
+      }
+      model = group
+      scene.add(group)
+      const box = new THREE.Box3().setFromObject(group)
+      const center = box.getCenter(new THREE.Vector3())
+      const size = box.getSize(new THREE.Vector3())
+      controls.target.copy(center)
+      const vertical = (camera.fov * Math.PI) / 360
+      const horizontal = Math.atan(Math.tan(vertical) * Math.max(camera.aspect, 0.5))
+      const distance =
+        size.y > 1.2
+          ? 1.075 / Math.tan(vertical)
+          : Math.max(size.y / 2 / Math.tan(vertical), size.x / 2 / Math.tan(horizontal)) * 1.25
+      controls.minDistance = Math.min(0.2, distance * 0.2)
+      controls.maxDistance = Math.max(distance * 3, 8)
+      camera.position.set(center.x, center.y, center.z + distance)
+      camera.near = Math.max(0.01, distance / 100)
+      camera.far = distance * 20
+      camera.lookAt(center)
+      camera.updateProjectionMatrix()
+      controls.update()
+      remember()
+    })()
     draw()
     return () => {
+      cancel = true
       window.cancelAnimationFrame(frame)
       observer.disconnect()
       if (model) {
@@ -93,7 +155,7 @@ export function DrapeView({ url, className }: { url: string; className?: string 
       renderer.dispose()
       renderer.domElement.remove()
     }
-  }, [url])
+  }, [url, urls?.join("|")])
 
   return (
     <div

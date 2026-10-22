@@ -20,7 +20,9 @@ from app.capture import (
     stored_face,
     stored_image,
 )
-from app.drape import display_path, prepare_outfit_drape
+from app.body import cached_body, prepare_body, remove_body
+from app.drape import display_path
+from app.suggest import suggest_rows
 from app.members import clean_member, member_dir, photo_file, remove_photos
 from app.db import (
     CATEGORIES,
@@ -232,6 +234,11 @@ def delete_garment(garment_id: str) -> None:
             "DELETE FROM garments WHERE id = ?",
             (garment_id,),
         )
+        if cursor.rowcount:
+            connection.execute(
+                "DELETE FROM outfits WHERE garment_id = ?",
+                (garment_id,),
+            )
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="没有这件衣服")
 
@@ -255,6 +262,7 @@ def garment_image(garment_id: str) -> FileResponse:
 async def create_capture(
     photo: UploadFile = File(...),
     label: UploadFile | None = File(None),
+    piece: str = Form("piece"),
 ) -> CaptureOut:
     capture_id = uuid4().hex
     folder = capture_dir(capture_id)
@@ -264,7 +272,19 @@ async def create_capture(
         if label_bytes:
             save_upload(label_bytes, folder, "label")
     has_cutout = cut_out(folder)
-    fields, message = recognize(folder)
+    if piece == "set":
+        fields = {
+            "name": "",
+            "category": "套装",
+            "color": "",
+            "pattern": "",
+            "season": "",
+            "fiber": "",
+            "owner": "",
+        }
+        message = "" if has_cutout else "还不能抠图，请自己填写"
+    else:
+        fields, message = recognize(folder)
     return CaptureOut(
         id=capture_id,
         cutout_url=f"/api/captures/{capture_id}/cutout" if has_cutout else "",
@@ -633,6 +653,7 @@ class Member(BaseModel):
     hip_cm: int | None = None
     front: str = ""
     side: str = ""
+    body_url: str = ""
     created_at: str
     updated_at: str
 
@@ -647,6 +668,8 @@ def to_member(row) -> Member:
         member.front = f"/api/members/{member_id}/front"
     if photo_file(member_id, "side") is not None:
         member.side = f"/api/members/{member_id}/side"
+    if cached_body(member_id, member.height_cm, member.chest_cm, member.waist_cm, member.hip_cm) is not None:
+        member.body_url = f"/api/members/{member_id}/body.gltf"
     return member
 
 
@@ -788,6 +811,18 @@ def delete_member(member_id: str) -> None:
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="没有这位成员")
     remove_photos(member_id)
+    remove_body(member_id)
+
+
+@app.get("/api/members/{member_id}/body.gltf")
+def member_body(member_id: str) -> FileResponse:
+    member_id = require_member(member_id)
+    with connect() as connection:
+        row = connection.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
+    path = prepare_body(member_id, int(row["height_cm"]), row["chest_cm"], row["waist_cm"], row["hip_cm"])
+    if path is None:
+        raise HTTPException(status_code=404, detail="还不能生成人体")
+    return FileResponse(path, media_type="model/gltf+json", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/members/{member_id}/front")
@@ -858,14 +893,10 @@ def read_outfit(member_id: str) -> Outfit:
 
 
 def _with_drape(member_id: str, items: list[OutfitItem]) -> Outfit:
-    height = _member_height(member_id)
-    url, message = prepare_outfit_drape(member_id, _drape_rows(items), height)
     return Outfit(
         member_id=member_id,
         items=items,
-        display_url=url,
-        message=message,
-        height_cm=height,
+        height_cm=_member_height(member_id),
     )
 
 
@@ -882,33 +913,27 @@ def _member_height(member_id: str) -> int:
     return int(row["height_cm"])
 
 
-def _drape_rows(items: list[OutfitItem]) -> list[dict]:
-    rows: list[dict] = []
-    with connect() as connection:
-        for item in items:
-            garment = connection.execute(
-                "SELECT id, name, category, fiber, color, image FROM garments WHERE id = ?",
-                (item.garment_id,),
-            ).fetchone()
-            if garment is None:
-                continue
-            rows.append(
-                {
-                    "id": garment["id"],
-                    "slot": item.slot,
-                    "name": garment["name"],
-                    "category": garment["category"],
-                    "fiber": garment["fiber"] or "",
-                    "color": garment["color"] or "",
-                    "image": garment["image"] or "",
-                }
-            )
-    return rows
-
-
 @app.get("/api/outfits")
 def get_outfit(member_id: str = "") -> Outfit:
     return read_outfit(require_member(member_id))
+
+
+@app.get("/api/outfits/suggest")
+def suggest_outfit(member_id: str = "") -> Outfit:
+    member_id = require_member(member_id)
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT id, name, category, color, season FROM garments"
+        ).fetchall()
+    chosen = suggest_rows([dict(row) for row in rows])
+    items = [OutfitItem(slot=row["category"], garment_id=row["id"]) for row in chosen]
+    items.sort(key=lambda item: CATEGORIES.index(item.slot))
+    return Outfit(
+        member_id=member_id,
+        items=items,
+        message="" if items else "还不能凑成一套",
+        height_cm=_member_height(member_id),
+    )
 
 
 @app.get("/api/outfits/display.gltf")

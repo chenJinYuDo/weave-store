@@ -2,6 +2,10 @@ declare module "three" {
   export const SRGBColorSpace: string
 
   export class Vector3 {
+    constructor(x?: number, y?: number, z?: number)
+    x: number
+    y: number
+    z: number
     set(x: number, y: number, z: number): this
     copy(value: Vector3): this
     add(value: Vector3): this
@@ -16,6 +20,16 @@ declare module "three" {
 
   export class Object3D {
     position: Vector3
+    children: Object3D[]
+    add(...objects: Object3D[]): this
+  }
+
+  export class Group extends Object3D {}
+
+  export class Box3 {
+    setFromObject(object: Object3D): this
+    getCenter(target: Vector3): Vector3
+    getSize(target: Vector3): Vector3
   }
 
   export class Scene extends Object3D {
@@ -27,7 +41,11 @@ declare module "three" {
 
   export class PerspectiveCamera extends Camera {
     constructor(fov: number, aspect: number, near: number, far: number)
+    fov: number
     aspect: number
+    near: number
+    far: number
+    lookAt(target: Vector3): void
     updateProjectionMatrix(): void
   }
 

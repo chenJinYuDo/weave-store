@@ -18,6 +18,11 @@ export function getOutfit(memberId: string) {
   return request<Outfit>(`/api/outfits${search}`)
 }
 
+export function suggestOutfit(memberId: string) {
+  const search = memberId ? `?member_id=${encodeURIComponent(memberId)}` : ""
+  return request<Outfit>(`/api/outfits/suggest${search}`)
+}
+
 export function putOutfit(outfit: { member_id: string; items: OutfitItem[] }) {
   return request<Outfit>("/api/outfits", {
     method: "PUT",

@@ -102,9 +102,6 @@ export function MemberPage() {
             />
           </div>
         ) : null}
-        <div className="flex min-h-40 items-center justify-center rounded-[24px] border border-border bg-muted px-6 text-center">
-          <p className="text-[17px] text-muted-foreground">还不能生成人体</p>
-        </div>
       </div>
       <MemberForm
         values={toMemberForm(member.data)}

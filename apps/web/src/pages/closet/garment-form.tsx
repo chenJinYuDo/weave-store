@@ -23,10 +23,12 @@ const seasonOptions = [
 export function GarmentForm({
   values,
   submitting,
+  lockCategory = false,
   onSubmit,
 }: {
   values: GarmentInput
   submitting: boolean
+  lockCategory?: boolean
   onSubmit: (values: GarmentInput) => void
 }) {
   const form = useForm<GarmentInput>({
@@ -48,18 +50,26 @@ export function GarmentForm({
           </p>
         ) : null}
       </div>
-      <Controller
-        control={form.control}
-        name="category"
-        render={({ field }) => (
-          <ChoiceField
-            label="品类"
-            value={field.value}
-            onChange={field.onChange}
-            options={categories.map((item) => ({ value: item, label: item }))}
-          />
-        )}
-      />
+      {lockCategory ? (
+        <div className="grid gap-1">
+          <Label>品类</Label>
+          <p className="text-[17px]">套装</p>
+          <input type="hidden" {...form.register("category")} />
+        </div>
+      ) : (
+        <Controller
+          control={form.control}
+          name="category"
+          render={({ field }) => (
+            <ChoiceField
+              label="品类"
+              value={field.value}
+              onChange={field.onChange}
+              options={categories.map((item) => ({ value: item, label: item }))}
+            />
+          )}
+        />
+      )}
       <div className="grid gap-1">
         <Label htmlFor="color">颜色</Label>
         <Input id="color" {...form.register("color")} />

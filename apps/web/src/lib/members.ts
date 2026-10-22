@@ -42,6 +42,7 @@ export type Member = MemberInput & {
   id: string
   front: string
   side: string
+  body_url: string
   created_at: string
   updated_at: string
 }

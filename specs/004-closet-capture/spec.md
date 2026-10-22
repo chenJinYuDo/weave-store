@@ -29,7 +29,7 @@
 
 ## 数据与接口
 
-原图、洗标和抠图放在 `data/captures/{id}/`，该目录不进 git。权重缓存不进 git。密钥只读环境变量 `DEEPSEEK_API_KEY`，不进 git。
+原图、洗标和抠图放在 `data/captures/{id}/`，该目录不进 git。权重缓存不进 git。启动时从仓库根目录的 `.env` 读入 `DEEPSEEK_API_KEY`，终端里已经有的同名变量优先。`.env` 不进 git。
 
 衣服表增加可空的抠图位置。保存时如果这份拍照有抠图，就记下它。修改衣服不清除抠图。
 

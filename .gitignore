@@ -1,4 +1,5 @@
 data/
+TEST_DATA/
 .env
 __pycache__/
 .venv/

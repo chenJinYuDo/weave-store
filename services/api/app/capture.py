@@ -4,8 +4,12 @@ import json
 import logging
 import os
 import re
+import ssl
 import threading
 import urllib.request
+
+import certifi
+import numpy as np
 from decimal import Decimal
 from pathlib import Path
 
@@ -16,10 +20,12 @@ from app.db import CATEGORIES, CONSTRUCTIONS, DATA, OPACITIES, SEASONS, SHEENS
 
 CAPTURES = DATA / "captures"
 MODEL = Path.home() / ".rembg/models/birefnet-general-lite/birefnet-general-lite.onnx"
+CLOTH_MODEL = Path.home() / ".rembg/models/u2net_cloth_seg/u2net_cloth_seg.onnx"
 MAX_BYTES = 12 * 1024 * 1024
 EXTENSIONS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
 LOGGER = logging.getLogger("uvicorn.error")
 _SESSION = None
+_CLOTH = None
 _LOCK = threading.Lock()
 
 
@@ -60,7 +66,9 @@ def cut_out(folder: Path) -> bool:
         from rembg import remove
 
         result = remove(photo.read_bytes(), session=session())
-        dest.write_bytes(result)
+        cutout = Image.open(io.BytesIO(result)).convert("RGBA")
+        cutout = drop_wearer(Image.open(photo).convert("RGB"), cutout)
+        cutout.save(dest, format="PNG")
         return dest.is_file() and dest.stat().st_size > 0
     except Exception:
         LOGGER.exception("cutout failed")
@@ -75,6 +83,65 @@ def session():
 
             _SESSION = new_session("birefnet-general-lite")
         return _SESSION
+
+
+def cloth_session():
+    global _CLOTH
+    with _LOCK:
+        if _CLOTH is None:
+            from rembg import new_session
+
+            _CLOTH = new_session("u2net_cloth_seg")
+        return _CLOTH
+
+
+def drop_wearer(photo: Image.Image, cutout: Image.Image) -> Image.Image:
+    if not CLOTH_MODEL.is_file():
+        return cutout
+    try:
+        masks = cloth_session().predict(photo.convert("RGB"), cloth_category="attire")
+    except Exception:
+        LOGGER.exception("cloth mask failed")
+        return cutout
+    if not masks:
+        return cutout
+    from scipy.ndimage import binary_closing, binary_dilation, binary_fill_holes, label
+
+    cloth = np.asarray(masks[0].resize(cutout.size, Image.Resampling.NEAREST)) > 32
+    rgba = np.array(cutout.convert("RGBA"))
+    alpha = rgba[:, :, 3]
+    foreground = alpha > 20
+    foreground_count = int(foreground.sum())
+    if foreground_count < 400:
+        return cutout
+    rgb = np.asarray(photo.convert("RGB").resize(cutout.size, Image.Resampling.BILINEAR))
+    ycc = np.asarray(Image.fromarray(rgb).convert("YCbCr"))
+    red = rgb[:, :, 0].astype(np.int16)
+    blue = rgb[:, :, 2].astype(np.int16)
+    skin = (
+        (ycc[:, :, 2] >= 133)
+        & (ycc[:, :, 2] <= 165)
+        & (ycc[:, :, 1] >= 112)
+        & (ycc[:, :, 1] <= 140)
+        & (ycc[:, :, 0] >= 130)
+        & ((red - blue) > 12)
+    )
+    closed = binary_closing(cloth, iterations=5)
+    interior = binary_fill_holes(closed)
+    repaired = closed | (np.logical_and(interior, ~closed) & ~skin)
+    grown = binary_dilation(repaired, iterations=8)
+    clothes = (repaired | (grown & foreground & ~skin & ~repaired)) & foreground
+    labeled, count = label(clothes)
+    if count:
+        sizes = np.bincount(labeled.ravel())
+        keep = sizes >= 1500
+        keep[0] = False
+        clothes = keep[labeled]
+    kept = int(np.logical_and(foreground, clothes).sum())
+    if kept < foreground_count * 0.35 or foreground_count - kept < foreground_count * 0.05:
+        return cutout
+    rgba[:, :, 3] = np.where(clothes, alpha, 0)
+    return Image.fromarray(rgba)
 
 
 def stored_image(capture_id: str) -> str:
@@ -220,7 +287,8 @@ def ask_json(key: str, image: bytes, mime: str, prompt: str) -> dict:
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=40) as response:
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urllib.request.urlopen(request, timeout=40, context=context) as response:
         body = json.load(response)
     text = str(body["choices"][0]["message"]["content"]).strip()
     start = text.find("{")

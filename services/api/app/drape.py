@@ -140,7 +140,7 @@ def display_state(member_id: str, garments: list[dict], height_cm: int = STANDAR
         return "", ""
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     slots = [f"{item['slot']}:{item['id']}" for item in garments]
-    if meta.get("slots") != slots or meta.get("height_cm") != height_cm:
+    if meta.get("slots") != slots or meta.get("height_cm") != height_cm or meta.get("layout") != 2:
         return "", ""
     if not meta.get("ready") or not gltf_path.is_file():
         return "", meta.get("message", "")
@@ -374,7 +374,7 @@ def _matches(member_id: str, garments: list[dict], height_cm: int) -> bool:
         return False
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     slots = [f"{item['slot']}:{item['id']}" for item in garments]
-    if meta.get("slots") != slots or meta.get("height_cm") != height_cm:
+    if meta.get("slots") != slots or meta.get("height_cm") != height_cm or meta.get("layout") != 2:
         return False
     if meta.get("ready") and not (DRAPES / "outfits" / f"{key}.gltf").is_file():
         return False
@@ -382,12 +382,11 @@ def _matches(member_id: str, garments: list[dict], height_cm: int) -> bool:
 
 
 def _merge(meshes: list[dict], scale: float):
-    center = np.concatenate([mesh["display"] for mesh in meshes]).mean(axis=0)
     parts = []
     for mesh in meshes:
         parts.append(
             {
-                "position": ((mesh["display"] - center) * scale).astype(np.float32),
+                "position": (mesh["display"] * scale).astype(np.float32),
                 "uv": mesh["uv"].astype(np.float32),
                 "index": mesh["index"].astype(np.uint16),
                 "texture": mesh["texture"],
@@ -452,7 +451,11 @@ def _gltf(parts) -> str:
                     "POSITION": push(part["position"], 5126, "VEC3"),
                     "TEXCOORD_0": push(part["uv"], 5126, "VEC2"),
                 },
-                "indices": push(part["index"], 5123, "SCALAR"),
+                "indices": push(
+                    part["index"],
+                    5125 if np.asarray(part["index"]).dtype == np.uint32 else 5123,
+                    "SCALAR",
+                ),
                 "material": len(materials) - 1,
                 "mode": 4,
             }
@@ -482,7 +485,7 @@ def _gltf(parts) -> str:
 def _write_meta(path: Path, slots: list[str], ready: bool, message: str, height_cm: int) -> None:
     path.write_text(
         json.dumps(
-            {"slots": slots, "ready": ready, "message": message, "height_cm": height_cm},
+            {"slots": slots, "ready": ready, "message": message, "height_cm": height_cm, "layout": 2},
             ensure_ascii=False,
         ),
         encoding="utf-8",
